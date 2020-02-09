@@ -1,21 +1,34 @@
---mz_strm.h 2.9.1 Stream interface
-local ffi = require'ffi'
-ffi.cdef[[
+/* mz_strm.h -- Stream interface
+   Version 2.9.1, November 15, 2019
+   part of the MiniZip project
+
+   Copyright (C) 2010-2019 Nathan Moinvaziri
+     https://github.com/nmoinvaz/minizip
+
+   This program is distributed under the terms of the same license as zlib.
+   See the accompanying LICENSE file for the full text of the license.
+*/
+
+#ifndef MZ_STREAM_H
+#define MZ_STREAM_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /***************************************************************************/
 
-enum {
-	MZ_STREAM_PROP_TOTAL_IN             = 1,
-	MZ_STREAM_PROP_TOTAL_IN_MAX         = 2,
-	MZ_STREAM_PROP_TOTAL_OUT            = 3,
-	MZ_STREAM_PROP_TOTAL_OUT_MAX        = 4,
-	MZ_STREAM_PROP_HEADER_SIZE          = 5,
-	MZ_STREAM_PROP_FOOTER_SIZE          = 6,
-	MZ_STREAM_PROP_DISK_SIZE            = 7,
-	MZ_STREAM_PROP_DISK_NUMBER          = 8,
-	MZ_STREAM_PROP_COMPRESS_LEVEL       = 9,
-	MZ_STREAM_PROP_COMPRESS_ALGORITHM   = 10,
-	MZ_STREAM_PROP_COMPRESS_WINDOW      = 11,
-};
+#define MZ_STREAM_PROP_TOTAL_IN             (1)
+#define MZ_STREAM_PROP_TOTAL_IN_MAX         (2)
+#define MZ_STREAM_PROP_TOTAL_OUT            (3)
+#define MZ_STREAM_PROP_TOTAL_OUT_MAX        (4)
+#define MZ_STREAM_PROP_HEADER_SIZE          (5)
+#define MZ_STREAM_PROP_FOOTER_SIZE          (6)
+#define MZ_STREAM_PROP_DISK_SIZE            (7)
+#define MZ_STREAM_PROP_DISK_NUMBER          (8)
+#define MZ_STREAM_PROP_COMPRESS_LEVEL       (9)
+#define MZ_STREAM_PROP_COMPRESS_ALGORITHM   (10)
+#define MZ_STREAM_PROP_COMPRESS_WINDOW      (11)
 
 /***************************************************************************/
 
@@ -113,4 +126,9 @@ void*   mz_stream_raw_create(void **stream);
 void    mz_stream_raw_delete(void **stream);
 
 /***************************************************************************/
-]]
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
