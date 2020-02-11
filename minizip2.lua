@@ -40,14 +40,26 @@ local function str(s, len)
 	return s ~= nil and ffi.string(s, len) or nil
 end
 
+local function init_properties(self, t, fields)
+	for k in pairs(fields) do
+		if t[k] then self[k] = t[k] end
+	end
+end
+
 --zip entry ------------------------------------------------------------------
 
 local entry_get = {}
+local entry_set = {}
 
-function entry_get:filename   () return str(self.filename_ptr, self.filename_size) end
+function entry_get:filename   () return str(self.filename_ptr) end
 function entry_get:extrafield () return str(self.extrafield_ptr, self.extrafield_size) end
-function entry_get:comment    () return str(self.comment_ptr, self.comment_size) end
-function entry_get:linkname   () return str(self.linkname_ptr) end
+function entry_get:comment    () return str(self.comment_ptr   , self.comment_size   ) end
+function entry_get:linkname   () return str(self.linkname_ptr                        ) end
+
+function entry_set:filename   (s) self.filename_ptr   = s end
+function entry_set:extrafield (s) self.extrafield_ptr = s end
+function entry_set:comment    (s) self.comment_ptr    = s end
+function entry_set:linkname   (s) self.linkname_ptr   = s end
 
 local compression_methods = {
 	store   = C.MZ_COMPRESS_METHOD_STORE  ,
@@ -75,12 +87,22 @@ function entry_get:mtime() return tonumber(self.mtime_t) end
 function entry_get:atime() return tonumber(self.atime_t) end
 function entry_get:btime() return tonumber(self.btime_t) end
 
-function entry_get:compressed_size() return tonumber(self.compressed_size_i64) end
-function entry_get:uncompressed_size() return tonumber(self.uncompressed_size_i64) end
-function entry_get:disk_offset() return tonumber(self.disk_offset_i64) end
-function entry_get:zip64() return self.zip64_u16 == 1 end
+function entry_set:mtime(t) self.mtime_t = t end
+function entry_set:atime(t) self.atime_t = t end
+function entry_set:btime(t) self.btime_t = t end
 
-ffi.metatype('mz_zip_entry', glue.gettersandsetters(entry_get))
+function entry_get:compressed_size   () return tonumber(self.compressed_size_i64  ) end
+function entry_get:uncompressed_size () return tonumber(self.uncompressed_size_i64) end
+function entry_get:disk_offset       () return tonumber(self.disk_offset_i64      ) end
+
+function entry_set:compressed_size   (n) self.compressed_size_i64   = n end
+function entry_set:uncompressed_size (n) self.uncompressed_size_i64 = n end
+function entry_set:disk_offset       (n) self.disk_offset_i64       = n end
+
+function entry_get:zip64             () return self.zip64_u16 == 1 end
+function entry_set:zip64             (b) self.zip64_u16 = b end
+
+ffi.metatype('mz_zip_file', glue.gettersandsetters(entry_get, entry_set))
 
 --reader & writer ------------------------------------------------------------
 
@@ -97,11 +119,20 @@ local writer = {}; local writer_get = {}; local writer_set = {}
 local cbuf = ffi.new'char*[1]'
 local bbuf = ffi.new'uint8_t[1]'
 local vbuf = ffi.new'void*[1]'
-local ebuf = ffi.new'mz_zip_entry'
-local pebuf = ffi.new'mz_zip_entry*[1]'
 
+local entry_init_fields = {
+	mtime=1,
+	atime=1,
+	btime=1,
+	filename=1,
+	comment=1,
+	linkname=1,
+}
+local ebuf = ffi.new'mz_zip_file'
 local function setebuf(t)
-	return ebuf --TODO: read t
+	ffi.fill(ebuf, 0)
+	init_properties(ebuf, t, entry_init_fields)
+	return ebuf
 end
 
 local error_strings = {
@@ -113,6 +144,7 @@ local error_strings = {
 	[C.MZ_SUPPORT_ERROR  ] = 'support',
 	[C.MZ_HASH_ERROR     ] = 'hash',
 	[C.MZ_OPEN_ERROR     ] = 'open',
+	[C.MZ_EXIST_ERROR    ] = 'exist',
 	[C.MZ_CLOSE_ERROR    ] = 'close',
 	[C.MZ_SEEK_ERROR     ] = 'seek',
 	[C.MZ_TELL_ERROR     ] = 'tell',
@@ -142,16 +174,10 @@ local function checklen(err)
 	return check(err, err > 0 and err or nil)
 end
 
-local function init_properties(fields, z, t)
-	for k in pairs(fields) do
-		if t[k] then z[k] = t[k] end
-	end
-end
-
 local function open_reader(t)
 	assert(C.mz_zip_reader_create(vbuf) ~= nil)
 	local z = ffi.cast(reader_ptr_ct, vbuf[0])
-	init_properties(reader_set, z, t)
+	init_properties(z, t, reader_set)
 	local err
 	if t.file then
 		if t.in_memory then
@@ -160,7 +186,7 @@ local function open_reader(t)
 			err = C.mz_zip_reader_open_file(z, t.file)
 		end
 	elseif t.data then
-		err = C.mz_zip_reader_open_buffer(z, t.data, t.len or #t.data, t.copy or false)
+		err = C.mz_zip_reader_open_buffer(z, t.data, t.size or #t.data, t.copy or false)
 		ffi.gc(z, function() local _ = t.data end) --anchor it
 	else
 		--TODO: int32_t mz_zip_reader_open(void *handle, void *stream);
@@ -175,7 +201,7 @@ end
 local function open_writer(t)
 	assert(C.mz_zip_writer_create(vbuf) ~= nil)
 	local z = ffi.cast(writer_ptr_ct, vbuf[0])
-	init_properties(writer_set, z, t)
+	init_properties(z, t, writer_set)
 	local err
 	if t.file then
 		err = C.mz_zip_writer_open_file(z, t.file, t.disk_size or 0, t.mode == 'a')
@@ -199,15 +225,19 @@ function M.open(t, mode, password)
 end
 
 function reader:close()
-	C.mz_zip_reader_close(self)
+	local ok, err, errcode = checkok(C.mz_zip_reader_close(self))
 	vbuf[0] = self
 	C.mz_zip_reader_delete(vbuf)
+	if not ok then return nil, err, errcode end
+	return true
 end
 
 function writer:close()
-	C.mz_zip_writer_close(self)
+	local ok, err, errcode = checkok(C.mz_zip_writer_close(self))
 	vbuf[0] = self
 	C.mz_zip_writer_delete(vbuf)
+	if not ok then return nil, err, errcode end
+	return true
 end
 
 --reader entry catalog
@@ -229,6 +259,7 @@ function reader:find(filename, ignore_case)
 	return checkeol(C.mz_zip_reader_locate_entry(self, filename, ignore_case or false))
 end
 
+local pebuf = ffi.new'mz_zip_file*[1]'
 function reader_get:entry()
 	assert(checkok(C.mz_zip_reader_entry_get_info(self, pebuf)))
 	return pebuf[0]
@@ -397,9 +428,16 @@ function writer:add_file(file, filename_in_zip)
 	return checkok(C.mz_zip_writer_add_file(self, file, filename_in_zip))
 end
 
-function writer:add_memfile(entry)
+local void_ptr_ct = ffi.typeof'void*'
+function writer:add_memfile(entry, ...)
+	if type(entry) == 'string' then
+		local data, size = ...
+		entry = {filename = entry, data = data, size = size}
+	end
 	return checkok(C.mz_zip_writer_add_buffer(self,
-		entry.data, entry.len or #entry.data, setebuf(entry)))
+		ffi.cast(void_ptr_ct, entry.data),
+		entry.size or #entry.data,
+		setebuf(entry)))
 end
 
 function writer:add_all(dir, root_dir, include_path, recursive)

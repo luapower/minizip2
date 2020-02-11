@@ -46,7 +46,7 @@ archives, featuring:
 `e.zip64 -> true|false`                              zip64 extension mode
 `e.aes_version -> n`                                 winzip aes extension if not 0
 `e.aes_encryption_mode -> n`                         winzip aes encryption mode
-`rz:extract(to_path)`                                extract current entry to file
+`rz:extract(to_filepath)`                            extract current entry to file
 `rz:extract_all(to_dir)`                             extract all to dir
 `rz:read'*a' -> s`                                   read entire entry as string
 `rz:open_entry()`                                    open current entry
@@ -67,7 +67,7 @@ archives, featuring:
 `wz.compression_level = 0..9`                        set compression level
 `wz.compression_method = 'store|deflate'`            set compression method
 `wz:add_file(filepath[, filepath_in_zip])`           archive a file
-`wz:add_memfile{data=,[len=],filename=,...}`         add a file from a memory buffer
+`wz:add_memfile{filename=,data=,[size=],...}`        add a file from a memory buffer
 `wz:add_all(dir,[root_dir],[incl_path],[recursive])` add entire dir
 `wz:add_all_from_zip(rz)`                            add all entries from other zip file
 `wz:zip_cd()`                                        compress central directory
@@ -89,7 +89,7 @@ __key__               __mode__ __value__         __default__  __meaning__
 `file`                rwa      `string`                       open a zip file from disk
 `in_memory`           r        `true|false`      `false`      load whole file in memory
 `data`                r        `string|buffer`                open a zip file from a memory buffer or string
-`len`                 r        `number`          `#data`      buffer length
+`size`                r        `number`          `#data`      data size
 `copy`                r        `true|false`      `false`      copy the buffer before loading
 `pattern`             r        `string`                       filter listing entries
 `ci_pattern`          r        `string`                       filter listing entries (case insensitive)
