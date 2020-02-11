@@ -75,7 +75,8 @@ archives, featuring:
 `rz|wz:close()`                                      close the zip file
 ---------------------------------------------------- -------------------------------------------
 
-__NOTE:__ All functions that involve I/O return `nil, err` on error.
+__NOTE:__ All functions raise on errors, with the exception of I/O and parsing
+errors on which they return `nil, err, errcode`.
 
 ### `zip.open(options) -> rz|wz`
 
@@ -104,3 +105,13 @@ __key__               __mode__ __value__         __default__  __meaning__
 
 Open a zip file for reading, writing or appending. The zip file bits can come
 from the filesystem or from a memory buffer.
+
+## Notes
+
+Encryption uses AES-256 only.
+
+## Binaries
+
+The included binaries only support deflate compression for which they
+depend on zlib. LZMA and bzip2 compression/decompression is not supported
+in the binary (the binding supports it though if you have the right binary).

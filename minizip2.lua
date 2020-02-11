@@ -94,6 +94,8 @@ local writer_ptr_ct = ffi.typeof'struct minizip_writer_t*'
 local reader = {}; local reader_get = {}; local reader_set = {}
 local writer = {}; local writer_get = {}; local writer_set = {}
 
+local cbuf = ffi.new'char*[1]'
+local bbuf = ffi.new'uint8_t[1]'
 local vbuf = ffi.new'void*[1]'
 local ebuf = ffi.new'mz_zip_entry'
 local pebuf = ffi.new'mz_zip_entry*[1]'
@@ -140,8 +142,8 @@ local function checklen(err)
 	return check(err, err > 0 and err or nil)
 end
 
-local function init_fields(init_fields, z, t)
-	for k in pairs(init_fields) do
+local function init_properties(fields, z, t)
+	for k in pairs(fields) do
 		if t[k] then z[k] = t[k] end
 	end
 end
@@ -149,7 +151,7 @@ end
 local function open_reader(t)
 	assert(C.mz_zip_reader_create(vbuf) ~= nil)
 	local z = ffi.cast(reader_ptr_ct, vbuf[0])
-	init_fields(reader_set, z, t)
+	init_properties(reader_set, z, t)
 	local err
 	if t.file then
 		if t.in_memory then
@@ -173,7 +175,7 @@ end
 local function open_writer(t)
 	assert(C.mz_zip_writer_create(vbuf) ~= nil)
 	local z = ffi.cast(writer_ptr_ct, vbuf[0])
-	init_fields(writer_set, z, t)
+	init_properties(writer_set, z, t)
 	local err
 	if t.file then
 		err = C.mz_zip_writer_open_file(z, t.file, t.disk_size or 0, t.mode == 'a')
@@ -262,7 +264,6 @@ function reader_set:encoding(encoding)
 	C.mz_zip_reader_set_encoding(self, encoding)
 end
 
-local cbuf = ffi.new'char*[1]'
 function reader_get:comment()
 	assert(checkok(C.mz_zip_reader_get_comment(self, cbuf)))
 	return str(cbuf)
@@ -328,17 +329,24 @@ local digest_sizes = {
 	sha256 = C.MZ_HASH_SHA256_SIZE,
 }
 
-function reader:entry_hash(algorithm)
+function reader:entry_hash(algorithm, hbuf, hbuf_size)
 	algorithm = algorithm or 'sha256'
-	local digest_size = digest_sizes[algorithm]
-	local algorithm = algorithms[algorithm]
-	local exists = assert_checkexist(C.mz_zip_reader_entry_get_hash(
-		self, algorithm, bbuf, digest_size))
-	if exists then
-		return bbuf[0], digest_size --digest, digest_size
-	else
-		return nil
+	local digest_size = assert(digest_sizes[algorithm])
+	local algorithm   = assert(algorithms[algorithm])
+	local return_string
+	if not hbuf then
+		return_string = true
+		hbuf_size = digest_size
+		hbuf = ffi.new('char[?]', digest_size)
+	elseif hbuf_size < digest_size then
+		return nil, digest_size
 	end
+	local exists = assert_checkexist(C.mz_zip_reader_entry_get_hash(
+		self, algorithm, hbuf, digest_size))
+	if return_string then
+		return str(hbuf, digest_size)
+	end
+	return exists
 end
 
 function reader_get:entry_has_sign()
@@ -357,7 +365,6 @@ function reader_set:raw(raw)
 	C.mz_zip_reader_set_raw(self, raw)
 end
 
-local bbuf = ffi.new'uint8_t[1]'
 function reader_get:raw()
 	assert(checkok(C.mz_zip_reader_get_raw(self, bbuf)))
 	return bbuf[0] == 1
@@ -409,12 +416,12 @@ function writer_set:password(password)
 	C.mz_zip_writer_set_password(self, password)
 end
 
-function writer_set:password(comment)
+function writer_set:comment(comment)
 	C.mz_zip_writer_set_comment(self, comment)
 end
 
 function writer_set:raw(raw)
-	C.mz_zip_writer_set_raw(self, raw)
+	C.mz_zip_writer_set_raw(self, raw and true or false)
 end
 
 function writer_get:raw()
@@ -423,7 +430,7 @@ function writer_get:raw()
 end
 
 function writer_set:aes(aes)
-	C.mz_zip_writer_set_aes(self, aes)
+	C.mz_zip_writer_set_aes(self, aes and true or false)
 end
 
 function writer_set:compression_method(s)
@@ -431,19 +438,23 @@ function writer_set:compression_method(s)
 end
 
 function writer_set:compression_level(level)
-	C.mz_zip_writer_set_compress_level(self, level)
+	if level <= 0 then
+		self.compression_method = 'store'
+	else
+		C.mz_zip_writer_set_compress_level(self, math.min(math.max(level, 1), 9))
+	end
 end
 
 function writer_set:follow_links(follow)
-	C.mz_zip_writer_set_follow_links(self, follow)
+	C.mz_zip_writer_set_follow_links(self, follow and true or false)
 end
 
 function writer_set:store_links(store)
-	C.mz_zip_writer_set_store_links(self, store)
+	C.mz_zip_writer_set_store_links(self, store and true or false)
 end
 
 function writer_set:zip_cd(zip_it)
-	C.mz_zip_writer_set_zip_cd(self, zip_it)
+	C.mz_zip_writer_set_zip_cd(self, zip_it and true or false)
 end
 
 function writer:set_cert(path, pwd)
