@@ -40,7 +40,6 @@ archives, featuring:
 `e.internal_fa -> n`                                 internal file attributes
 `e.external_fa -> n`                                 external file attributes
 `e.filename -> s`                                    filename
-`e.extrafield -> s`                                  extrafield data
 `e.comment -> s`                                     comment
 `e.linkname -> s`                                    sym-link filename
 `e.zip64 -> true|false`                              zip64 extension mode
@@ -124,3 +123,7 @@ AES encryption (`aes` option) uses AES-256 only.
 The included binaries only support deflate compression for which they
 depend on zlib. LZMA and bzip2 compression/decompression is not supported
 in the binary (the binding supports it though if you have the right binary).
+
+## TODO
+
+  * stream API (yieldable if possible)

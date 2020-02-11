@@ -51,15 +51,13 @@ end
 local entry_get = {}
 local entry_set = {}
 
-function entry_get:filename   () return str(self.filename_ptr) end
-function entry_get:extrafield () return str(self.extrafield_ptr, self.extrafield_size) end
-function entry_get:comment    () return str(self.comment_ptr   , self.comment_size   ) end
-function entry_get:linkname   () return str(self.linkname_ptr                        ) end
+function entry_get:filename   () return str(self.filename_ptr  , self.filename_size) end
+function entry_get:comment    () return str(self.comment_ptr   , self.comment_size ) end
+function entry_get:linkname   () return str(self.linkname_ptr                      ) end
 
-function entry_set:filename   (s) self.filename_ptr   = s end
-function entry_set:extrafield (s) self.extrafield_ptr = s end
-function entry_set:comment    (s) self.comment_ptr    = s end
-function entry_set:linkname   (s) self.linkname_ptr   = s end
+function entry_set:filename   (s) self.filename_ptr = s; self.filename_size = #s end
+function entry_set:comment    (s) self.comment_ptr  = s; self.comment_size  = #s end
+function entry_set:linkname   (s) self.linkname_ptr = s; end
 
 local compression_methods = {
 	store   = C.MZ_COMPRESS_METHOD_STORE  ,
@@ -128,11 +126,15 @@ local entry_init_fields = {
 	comment=1,
 	linkname=1,
 }
-local ebuf = ffi.new'mz_zip_file'
-local function setebuf(t)
-	ffi.fill(ebuf, 0)
-	init_properties(ebuf, t, entry_init_fields)
-	return ebuf
+local function mz_zip_file(t)
+	local e = ffi.new'mz_zip_file'
+	init_properties(e, t, entry_init_fields)
+	ffi.gc(e, function() --anchor the strings
+		local _ = t.filename
+		local _ = t.comment
+		local _ = t.linkname
+	end)
+	return e
 end
 
 local error_strings = {
@@ -297,7 +299,7 @@ end
 
 function reader_get:comment()
 	assert(checkok(C.mz_zip_reader_get_comment(self, cbuf)))
-	return str(cbuf)
+	return str(cbuf[0])
 end
 
 function reader_get:zip_cd()
@@ -413,7 +415,7 @@ end
 --writer entry catalog & I/O
 
 function writer:add_entry(entry)
-	return checkok(C.mz_zip_writer_add_info(self, nil, nil, setebuf(entry)))
+	return checkok(C.mz_zip_writer_add_info(self, nil, nil, mz_zip_file(entry)))
 end
 
 function writer:write(buf, len)
@@ -437,7 +439,7 @@ function writer:add_memfile(entry, ...)
 	return checkok(C.mz_zip_writer_add_buffer(self,
 		ffi.cast(void_ptr_ct, entry.data),
 		entry.size or #entry.data,
-		setebuf(entry)))
+		mz_zip_file(entry)))
 end
 
 function writer:add_all(dir, root_dir, include_path, recursive)
