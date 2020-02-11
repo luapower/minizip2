@@ -111,12 +111,15 @@ from the filesystem or from a memory buffer.
 Neither Windows Explorer on Windows 10 nor Total Commander can read zip files
 with zipped central directory (`zip_cd` option).
 
-Windows Explorer on Windows 10 cannot decrypt AES-encrypted zip entries
-(`aes` option). OTOH ZipCrypto encryption (`aes = false`) can be decrypted
-with specialized tools for any password length since 1990. So you have
-to choose between two bad options here depending on your priorities.
+Windows Explorer on Windows 10 cannot read AES-encrypted zip entries
+(`aes` option, enabled by default). On the other hand, the old PKZIP
+encryption (`aes = false`) is not secure at all, and can be decrypted with
+specialized tools since 1990 regardless of password length. So you have
+to choose between security and accessibility with this one as you can't
+have both.
 
-AES encryption (`aes` option) uses AES-256 only.
+AES encryption (`aes` option) encrypts with AES-256, the only bit length
+available.
 
 ## Binaries
 
