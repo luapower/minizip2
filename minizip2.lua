@@ -22,11 +22,11 @@ function glue.index(t)
 end
 
 --return a metatable that supports virtual properties.
-function glue.gettersandsetters(t, getters, setters, super)
+function glue.gettersandsetters(getters, setters, super)
 	local get = getters and function(t, k)
 		local get = getters[k]
 		if get then return get(t) end
-		return super[k]
+		return super and super[k]
 	end
 	local set = setters and function(t, k, v)
 		local set = setters[k]
@@ -62,7 +62,7 @@ function entry_get:compression_method()
 	return compression_method_names[self.compression_method_num]
 end
 
-local encryption_modes = {
+local aes_bits = {
 	[C.MZ_AES_ENCRYPTION_MODE_128] = 128,
 	[C.MZ_AES_ENCRYPTION_MODE_192] = 192,
 	[C.MZ_AES_ENCRYPTION_MODE_256] = 256,
@@ -70,6 +70,10 @@ local encryption_modes = {
 function entry_get:aes_bits()
 	return aes_bits[self.aes_encryption_mode]
 end
+
+function entry_get:mtime() return tonumber(self.mtime_t) end
+function entry_get:atime() return tonumber(self.atime_t) end
+function entry_get:btime() return tonumber(self.btime_t) end
 
 function entry_get:compressed_size() return tonumber(self.compressed_size_i64) end
 function entry_get:uncompressed_size() return tonumber(self.uncompressed_size_i64) end
@@ -84,12 +88,13 @@ ffi.cdef[[
 typedef struct minizip_reader_t;
 typedef struct minizip_writer_t;
 ]]
+local reader_ptr_ct = ffi.typeof'struct minizip_reader_t*'
+local writer_ptr_ct = ffi.typeof'struct minizip_writer_t*'
 
 local reader = {}; local reader_get = {}; local reader_set = {}
 local writer = {}; local writer_get = {}; local writer_set = {}
 
-local rbuf = ffi.new'struct minizip_reader_t*[1]'
-local wbuf = ffi.new'struct minizip_writer_t*[1]'
+local vbuf = ffi.new'void*[1]'
 local ebuf = ffi.new'mz_zip_entry'
 local pebuf = ffi.new'mz_zip_entry*[1]'
 
@@ -97,19 +102,54 @@ local function setebuf(t)
 	return ebuf --TODO: read t
 end
 
+local error_strings = {
+	[C.MZ_DATA_ERROR     ] = 'data',
+	[C.MZ_END_OF_STREAM  ] = 'eof',
+	[C.MZ_CRC_ERROR      ] = 'crc',
+	[C.MZ_CRYPT_ERROR    ] = 'crypt',
+	[C.MZ_PASSWORD_ERROR ] = 'password',
+	[C.MZ_SUPPORT_ERROR  ] = 'support',
+	[C.MZ_HASH_ERROR     ] = 'hash',
+	[C.MZ_OPEN_ERROR     ] = 'open',
+	[C.MZ_CLOSE_ERROR    ] = 'close',
+	[C.MZ_SEEK_ERROR     ] = 'seek',
+	[C.MZ_TELL_ERROR     ] = 'tell',
+	[C.MZ_READ_ERROR     ] = 'read',
+	[C.MZ_WRITE_ERROR    ] = 'write',
+	[C.MZ_SIGN_ERROR     ] = 'sign',
+	[C.MZ_SYMLINK_ERROR  ] = 'symlink',
+}
+
 local function check(err, ret)
-	if err < 0 then return nil, err end
-	return ret or true
+	assert(err ~= C.MZ_PARAM_ERROR    , 'usage error')
+	assert(err ~= C.MZ_INTERNAL_ERROR , 'internal error')
+	assert(err ~= C.MZ_STREAM_ERROR   , 'stream error')
+	assert(err ~= C.MZ_MEM_ERROR      , 'memory error')
+	assert(err ~= C.MZ_BUF_ERROR      , 'buffer error')
+	assert(err ~= C.MZ_VERSION_ERROR  , 'version error')
+	if err >= 0 then return ret end
+	local err = error_strings[err] or err
+	return nil, string.format('minizip %s error', err), err
+end
+
+local function checkok(err)
+	return check(err, true)
 end
 
 local function checklen(err)
-	if err < 0 then return nil, err end
-	return err > 0 and err or nil
+	return check(err, err > 0 and err or nil)
+end
+
+local function init_fields(init_fields, z, t)
+	for k in pairs(init_fields) do
+		if t[k] then z[k] = t[k] end
+	end
 end
 
 local function open_reader(t)
-	C.mz_zip_reader_create(rbuf)
-	local z = rbuf[0]
+	assert(C.mz_zip_reader_create(vbuf) ~= nil)
+	local z = ffi.cast(reader_ptr_ct, vbuf[0])
+	init_fields(reader_set, z, t)
 	local err
 	if t.file then
 		if t.in_memory then
@@ -125,19 +165,15 @@ local function open_reader(t)
 		assert(false)
 	end
 	if err ~= 0 then
- 		C.mz_zip_reader_delete(rbuf)
-		return nil, err
-	else
-		return true
+ 		C.mz_zip_reader_delete(vbuf)
 	end
+	return check(err, z)
 end
 
 local function open_writer(t)
-	C.mz_zip_writer_create(wbuf)
-	local z = wbuf[0]
-
-	--TODO: use t to set z
-
+	assert(C.mz_zip_writer_create(vbuf) ~= nil)
+	local z = ffi.cast(writer_ptr_ct, vbuf[0])
+	init_fields(writer_set, z, t)
 	local err
 	if t.file then
 		err = C.mz_zip_writer_open_file(z, t.file, t.disk_size or 0, t.mode == 'a')
@@ -147,35 +183,36 @@ local function open_writer(t)
 	end
 
 	if err ~= 0 then
-		C.mz_zip_writer_delete(wbuf)
-		return nil, err
-	else
-		return true
+		C.mz_zip_writer_delete(vbuf)
 	end
+	return check(err, z)
 end
 
-function M.open(t)
+function M.open(t, mode, password)
+	if type(t) == 'string' then
+		t = {file = t, mode = mode, password = password}
+	end
 	local open = (t.mode or 'r') == 'r' and open_reader or open_writer
 	return open(t)
 end
 
 function reader:close()
 	C.mz_zip_reader_close(self)
-	rbuf[0] = self
-	C.mz_zip_reader_delete(rbuf)
+	vbuf[0] = self
+	C.mz_zip_reader_delete(vbuf)
 end
 
 function writer:close()
 	C.mz_zip_writer_close(self)
-	wbuf[0] = self
-	C.mz_zip_writer_delete(wbuf)
+	vbuf[0] = self
+	C.mz_zip_writer_delete(vbuf)
 end
 
 --reader entry catalog
 
 local function checkeol(err)
-	if err < 0 then return nil, err end
-	return err ~= C.MZ_END_OF_LIST
+	if err == C.MZ_END_OF_LIST then return false end
+	return checkok(err)
 end
 
 function reader:first()
@@ -187,28 +224,29 @@ function reader:next()
 end
 
 function reader:find(filename, ignore_case)
-	return check(C.mz_zip_reader_locate_entry(self, filename, ignore_case or false))
+	return checkeol(C.mz_zip_reader_locate_entry(self, filename, ignore_case or false))
 end
 
 function reader_get:entry()
-	assert(check(C.mz_zip_reader_entry_get_info(self, pebuf)))
+	assert(checkok(C.mz_zip_reader_entry_get_info(self, pebuf)))
 	return pebuf[0]
 end
 
 function reader:entries()
-	return function(e)
+	return function(self, e)
 		if e == false then return nil end
-		if not e then
-			local ok, err = self:first()
-			if not ok then return false, err end
+		local ok, err, ec
+		if e == nil then
+			ok, err, ec = self:first()
 		else
-			local ok, err = self:next()
-			if not ok then return false, err end
+			ok, err, ec = self:next()
 		end
-		local e, err = self:entry()
-		if not e then return false, err end
+		if ok == nil then return false, err, ec end
+		if ok == false then return nil end
+		local e, err, ec = self.entry
+		if not e then return false, err, ec end
 		return e
-	end
+	end, self
 end
 
 function reader_set:pattern(pattern)
@@ -226,28 +264,31 @@ end
 
 local cbuf = ffi.new'char*[1]'
 function reader_get:comment()
-	assert(check(C.mz_zip_reader_get_comment(self, cbuf)))
+	assert(checkok(C.mz_zip_reader_get_comment(self, cbuf)))
 	return str(cbuf)
 end
 
 function reader_get:zip_cd()
-	assert(check(C.mz_zip_reader_get_zip_cd(self, bbuf)))
+	assert(checkok(C.mz_zip_reader_get_zip_cd(self, bbuf)))
 	return bbuf[0] == 1
 end
 
 --reader entry I/O
 
 function reader:open_entry()
-	return check(C.mz_zip_reader_entry_open(self))
+	return checkok(C.mz_zip_reader_entry_open(self))
 end
 
 function reader:read(buf, len)
 	if buf == '*a' then --NOTE: 2GB max this way!
 		local len, err = checklen(C.mz_zip_reader_entry_save_buffer_length(self))
-		if not len then return nil, err end
+		if not len then
+			if err then return nil, err end
+			return nil
+		end
 		local buf = ffi.new('char[?]', len)
-		local ok, err = check(C.mz_zip_reader_entry_save_buffer(self, buf, len))
-		if not ok then return nil, err end
+		local ok, err, ec = checkok(C.mz_zip_reader_entry_save_buffer(self, buf, len))
+		if not ok then return nil, err, ec end
 		return str(buf, len)
 	else
 		return checklen(C.mz_zip_reader_entry_read(self, buf, len))
@@ -255,21 +296,24 @@ function reader:read(buf, len)
 end
 
 function reader:close_entry()
-	return check(C.mz_zip_reader_entry_close(self))
+	return checkok(C.mz_zip_reader_entry_close(self))
 end
 
 function reader:extract(dest_file)
-	return check(C.mz_zip_reader_entry_save_file(self, dest_file))
+	return checkok(C.mz_zip_reader_entry_save_file(self, dest_file))
 end
 
 function reader:extract_all(dest_dir)
-	return check(C.mz_zip_reader_save_all(self, dest_dir))
+	return checkok(C.mz_zip_reader_save_all(self, dest_dir))
+end
+
+local function assert_checkexist(err)
+	if err == C.MZ_EXIST_ERROR then return false end
+	return assert(check(err, true))
 end
 
 function reader_get:entry_is_dir()
-	local ret = C.mz_zip_reader_entry_is_dir(self)
-	assert(ret >= 0)
-	return ret > 0
+	return assert_checkexist(C.mz_zip_reader_entry_is_dir(self))
 end
 
 local algorithms = {
@@ -288,19 +332,21 @@ function reader:entry_hash(algorithm)
 	algorithm = algorithm or 'sha256'
 	local digest_size = digest_sizes[algorithm]
 	local algorithm = algorithms[algorithm]
-	local ok, err = check(C.mz_zip_reader_entry_get_hash(self, algorithm, bbuf, digest_size))
-	if not ok then return nil, err end
-	return bbuf[0], digest_size --digest, digest_size
+	local exists = assert_checkexist(C.mz_zip_reader_entry_get_hash(
+		self, algorithm, bbuf, digest_size))
+	if exists then
+		return bbuf[0], digest_size --digest, digest_size
+	else
+		return nil
+	end
 end
 
 function reader_get:entry_has_sign()
-	local ret = C.mz_zip_reader_entry_has_sign(self)
-	assert(ret >= 0)
-	return ret > 0
+	return assert_checkexist(C.mz_zip_reader_entry_has_sign(self))
 end
 
 function reader:entry_verify_sign()
-	return check(C.mz_zip_reader_entry_sign_verify(self))
+	return assert_checkexist(C.mz_zip_reader_entry_sign_verify(self))
 end
 
 function reader_set:password(password)
@@ -313,20 +359,19 @@ end
 
 local bbuf = ffi.new'uint8_t[1]'
 function reader_get:raw()
-	assert(check(C.mz_zip_reader_get_raw(self, bbuf)))
+	assert(checkok(C.mz_zip_reader_get_raw(self, bbuf)))
 	return bbuf[0] == 1
 end
 
-local vbuf = ffi.new'void*[1]'
 function reader_get:zip_handle()
-	assert(check(C.mz_zip_reader_get_zip_handle(self, vbuf)))
+	assert(checkok(C.mz_zip_reader_get_zip_handle(self, vbuf)))
 	return vbuf[0]
 end
 
 --writer entry catalog & I/O
 
 function writer:add_entry(entry)
-	return check(C.mz_zip_writer_add_info(self, nil, nil, setebuf(entry)))
+	return checkok(C.mz_zip_writer_add_info(self, nil, nil, setebuf(entry)))
 end
 
 function writer:write(buf, len)
@@ -334,26 +379,30 @@ function writer:write(buf, len)
 end
 
 function writer:close_entry()
-	return check(C.mz_zip_writer_entry_close(self))
+	return checkok(C.mz_zip_writer_entry_close(self))
 end
 
 function writer:add_file(file, filename_in_zip)
-	return check(C.mz_zip_writer_add_file(self, file, filename_in_zip))
+	return checkok(C.mz_zip_writer_add_file(self, file, filename_in_zip))
 end
 
 function writer:add_memfile(entry)
-	return check(C.mz_zip_writer_add_buffer(self,
+	return checkok(C.mz_zip_writer_add_buffer(self,
 		entry.data, entry.len or #entry.data, setebuf(entry)))
 end
 
 function writer:add_all(dir, root_dir, include_path, recursive)
-	return check(C.mz_zip_writer_add_path(self, dir, root_dir,
+	return checkok(C.mz_zip_writer_add_path(self, dir, root_dir,
 		include_path or false,
 		recursive ~= false))
 end
 
 function writer:add_all_from_zip(reader)
-	return check(C.mz_zip_writer_copy_from_reader(self, reader))
+	return checkok(C.mz_zip_writer_copy_from_reader(self, reader))
+end
+
+function writer:zip_cd()
+	assert(check(C.mz_zip_writer_zip_cd(), true))
 end
 
 function writer_set:password(password)
@@ -369,7 +418,7 @@ function writer_set:raw(raw)
 end
 
 function writer_get:raw()
-	assert(check(C.mz_zip_writer_get_raw(self, bbuf)))
+	assert(checkok(C.mz_zip_writer_get_raw(self, bbuf)))
 	return bbuf[0] == 1
 end
 
@@ -377,11 +426,11 @@ function writer_set:aes(aes)
 	C.mz_zip_writer_set_aes(self, aes)
 end
 
-function writer_set:compress_method(s)
+function writer_set:compression_method(s)
 	C.mz_zip_writer_set_compress_method(self, compression_methods[s])
 end
 
-function writer_set:compress_level(level)
+function writer_set:compression_level(level)
 	C.mz_zip_writer_set_compress_level(self, level)
 end
 
@@ -398,11 +447,11 @@ function writer_set:zip_cd(zip_it)
 end
 
 function writer:set_cert(path, pwd)
-	assert(check(C.mz_zip_writer_set_certificate(self, path, pwd)))
+	assert(checkok(C.mz_zip_writer_set_certificate(self, path, pwd)))
 end
 
 function writer_get:zip_handle()
-	assert(check(C.mz_zip_writer_get_zip_handle(self, vbuf)))
+	assert(checkok(C.mz_zip_writer_get_zip_handle(self, vbuf)))
 	return vbuf[0]
 end
 

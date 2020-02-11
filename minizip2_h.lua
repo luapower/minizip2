@@ -115,9 +115,9 @@ typedef struct mz_zip_file_s
 	uint16_t version_needed;            /* version needed to extract */
 	uint16_t flag;                      /* general purpose bit flag */
 	uint16_t compression_method_num;    /* compression method */
-	time_t   mtime;                     /* last modified date in unix time */
-	time_t   atime;                     /* last accessed date in unix time */
-	time_t   btime;                     /* creation date in unix time */
+	time_t   mtime_t;                   /* last modified date in unix time */
+	time_t   atime_t;                   /* last accessed date in unix time */
+	time_t   btime_t;                   /* creation date in unix time */
 	uint32_t crc;                       /* crc-32 */
 	int64_t  compressed_size_i64;       /* compressed size */
 	int64_t  uncompressed_size_i64;     /* uncompressed size */
