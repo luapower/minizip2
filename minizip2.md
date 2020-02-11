@@ -17,7 +17,7 @@ archives, featuring:
 ## API
 
 ---------------------------------------------------- -------------------------------------------
-`zip.open{mode=,file=,...} -> rz|wz`                 open a zip file
+`zip.open(opt | file,[mode],[passwd]) -> rz|wz`      open a zip file
 `rz:entries() -> iter() -> e`                        iterate entries
 `rz:first() -> true|false`                           goto first entry
 `rz:next() -> true|false`                            goto next entry
@@ -78,7 +78,7 @@ archives, featuring:
 __NOTE:__ All functions raise on errors, with the exception of I/O and parsing
 errors on which they return `nil, err, errcode`.
 
-### `zip.open(options) -> rz|wz`
+### `zip.open(options | file,[mode],[passwd]) -> rz|wz`
 
 The options table has the fields:
 
