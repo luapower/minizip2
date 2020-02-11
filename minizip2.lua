@@ -123,7 +123,7 @@ local error_strings = {
 }
 
 local function check(err, ret)
-	assert(err ~= C.MZ_PARAM_ERROR    , 'usage error')
+	assert(err ~= C.MZ_PARAM_ERROR    , 'param error')
 	assert(err ~= C.MZ_INTERNAL_ERROR , 'internal error')
 	assert(err ~= C.MZ_STREAM_ERROR   , 'stream error')
 	assert(err ~= C.MZ_MEM_ERROR      , 'memory error')
@@ -349,11 +349,15 @@ function reader:entry_hash(algorithm, hbuf, hbuf_size)
 	return exists
 end
 
-function reader_get:entry_has_sign()
+function reader_set:sign_required(req)
+	C.mz_zip_reader_set_sign_required(self, req and true or false)
+end
+
+function reader_get:file_has_sign()
 	return assert_checkexist(C.mz_zip_reader_entry_has_sign(self))
 end
 
-function reader:entry_verify_sign()
+function reader:file_verify_sign()
 	return assert_checkexist(C.mz_zip_reader_entry_sign_verify(self))
 end
 

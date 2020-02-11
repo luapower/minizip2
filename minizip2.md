@@ -24,8 +24,9 @@ archives, featuring:
 `rz:find(filename[, ignore_case]) -> true|false`     find entry
 `rz.entry_is_dir -> true|false`                      is current entry a directory?
 `rz:entry_hash(['md5'|'sha1'|'sha256']) -> s|false`  current entry hash
-`rz.entry_has_sign -> true|false`                    is _opened_ entry signed?
-`rz:entry_verify_sign() -> true|false`               verify entry signature
+`rz.sign_required = true|false`                      require signing
+`rz.file_has_sign -> true|false`                     is _opened *file* entry_ signed?
+`rz:file_verify_sign() -> true|false`                verify signature of _opened file entry_
 `rz.entry -> e`                                      get current entry info
 `e.compression_method -> s`                          compression method
 `e.mtime -> ts`                                      last modified time
@@ -84,23 +85,23 @@ The options table has the fields:
 
 --------------------- -------- ----------------- ------------ --------------------------------------------------
 __key__               __mode__ __value__         __default__  __meaning__
-`mode`                rwa      'r'|'w'|'a'       'r'          open for reading, writing or appending
-`file`                rwa      filepath                       open a zip file from disk
-`in_memory`           r        true|false        false        load whole file in memory
-`data`                r        string|buffer                  open a zip file from a memory buffer or string
-`len`                 r        number            `#data`      buffer length
-`copy`                r        true|false        false        copy the buffer before loading
-`pattern`             r        string                         filter listing entries
-`ci_pattern`          r        string                         filter listing entries (case insensitive)
-`password`            rwa      string                         set password for decryption/encryption
-`raw`                 rwa      true|false                     set raw mode
-`encoding`            r        'utf8'|codepage                support codepages in filenames
-`zip_cd`              w        true|false                     zip the central directory
-`aes`                 w        true|false                     use aes encryption
-`store_links`         w        true|false                     store symlinks
-`follow_links`        w        true|false                     follow symlinks
-`compression_level`   w        0..9                           compression level
-`compression_method`  w        'store|deflate'                compression method
+`mode`                rwa      `'r'|'w'|'a'`     `'r'`        open for reading, writing or appending
+`file`                rwa      `string`                       open a zip file from disk
+`in_memory`           r        `true|false`      `false`      load whole file in memory
+`data`                r        `string|buffer`                open a zip file from a memory buffer or string
+`len`                 r        `number`          `#data`      buffer length
+`copy`                r        `true|false`      `false`      copy the buffer before loading
+`pattern`             r        `string`                       filter listing entries
+`ci_pattern`          r        `string`                       filter listing entries (case insensitive)
+`password`            rwa      `string`                       set password for decryption/encryption
+`raw`                 rwa      `true|false`                   set raw mode
+`encoding`            r        `'utf8'|codepage`              support codepages in filenames
+`zip_cd`              w        `true|false`      `false`      zip the central directory
+`aes`                 w        `true|false`      `true` (!)   use aes encryption
+`store_links`         w        `true|false`      `false`      store symlinks
+`follow_links`        w        `true|false`      `false`      follow symlinks
+`compression_level`   w        `0..9`            `9`          compression level
+`compression_method`  w        `'store|deflate'` `'deflate'`  compression method
 --------------------- -------- ----------------- ------------ --------------------------------------------------
 
 Open a zip file for reading, writing or appending. The zip file bits can come
@@ -108,7 +109,15 @@ from the filesystem or from a memory buffer.
 
 ## Notes
 
-Encryption uses AES-256 only.
+Neither Windows Explorer on Windows 10 nor Total Commander can read zip files
+with zipped central directory (`zip_cd` option).
+
+Windows Explorer on Windows 10 cannot decrypt AES-encrypted zip entries
+(`aes` option). OTOH ZipCrypto encryption (`aes = false`) can be decrypted
+with specialized tools for any password length since 1990. So you have
+to choose between two bad options here depending on your priorities.
+
+AES encryption (`aes` option) uses AES-256 only.
 
 ## Binaries
 
